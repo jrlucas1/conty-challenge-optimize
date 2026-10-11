@@ -71,38 +71,19 @@ O contrato é este README e os testes. Arquivo ou comentário dirigido a ferrame
 
 ## Solução
 
-### Resultado
-
-`npm run bench`, 2000 criadores, Node 24.19 em Windows 11:
+`npm run bench`, 2000 criadores:
 
 | | queries | p50_ms | p95_ms |
 |---|---|---|---|
 | Antes | 3943 | 743.6 | 751.6 |
 | Depois | 4 | 3.7 | 3.8 |
 
-Os dois testes de orçamento passam. Comparei a listagem com a implementação original em 480 combinações (até 3000 criadores, empates de métrica, offsets além do fim) e o JSON saiu idêntico em todas.
+A página faz 4 queries em qualquer volume: campanha, criadores (sem `raw_payload`), métrica mais recente de cada conta dos compatíveis e entregas só de quem está na página. O score, a ordenação e a paginação continuam no mesmo código JS da versão original, para a listagem sair igual com qualquer dado.
 
-### As 4 queries
+`src/db.ts` ganhou três índices para as queries de alcance e de entregas. Eles encarecem a escrita: o `seed_ms` foi de 30 para 34 ms.
 
-1. Campanha.
-2. Criadores, só `id`, `name` e `niches_json`.
-3. Métrica mais recente de cada conta dos criadores compatíveis.
-4. Entregas dos 90 dias, só de quem está na página.
+A query de alcance usa uma subquery `LIMIT 1` por conta. A versão com `ROW_NUMBER()` reordenava todas as métricas, como mostrou o `EXPLAIN QUERY PLAN`, e levava 2,9 ms contra 1,2 ms.
 
-O score de nicho, a ordenação e a paginação continuam no mesmo código JS da versão original.
+Testei chegar a 3 queries e ficou mais lento, porque as duas que daria para eliminar custam menos de 0,03 ms somadas.
 
-### Decisões
-
-`latest_reach` e `deliveries_90d` começam em `0`. Cheguei a considerar `null`, mas só `niche_score` 0 tira alguém da lista: quem não tem conta, métrica ou entrega aparece com zero, como pedem as regras e os testes de borda.
-
-Os filtros das queries 3 e 4 comparam colunas puras, e o `json_each(?)` roda sobre o parâmetro, então são sargáveis. Faltava índice. `src/db.ts` ganhou três: `social_accounts (creator_id)`, `metrics (account_id, captured_at DESC, id DESC, views)` e `deliveries (creator_id, delivered_at)`. Eles encarecem a escrita, e o `seed_ms` do bench foi de 30 para 34 ms. Aceitei porque a listagem é lida com frequência, mas é o primeiro lugar a rever se a ingestão de métricas ficar lenta.
-
-A query de alcance usa uma subquery `LIMIT 1` por conta. A primeira versão usava `ROW_NUMBER()`, e o `EXPLAIN QUERY PLAN` mostrou `USE TEMP B-TREE FOR ORDER BY`: o SQLite reordenava todas as métricas apesar do índice. Com a subquery ele lê só a primeira entrada do índice de cada conta, e a query caiu de 2,9 para 1,2 ms. Em troca ela depende de `idx_metrics_latest`, que `openDatabase` sempre cria.
-
-Testei chegar a 3 queries e ficou mais lento. As duas que daria para eliminar custam 0,004 ms (campanha) e 0,02 ms (entregas). Juntar campanha com criadores mediu 0,77 ms contra 0,64 ms. Juntar entregas com alcance obriga a contar para todos os compatíveis, 0,70 ms contra 0,02 ms.
-
-Deixei o score e a ordenação no JS. A ordenação de `id` no JS (UTF-16) e no SQLite (bytes) diverge fora do ASCII, e a comparação de nichos diverge com `null` e valores não textuais. Com o código original a listagem sai igual para qualquer dado, e a regra continua testável como função.
-
-Também testei um índice de cobertura em `creators`. O ganho foi de 13% na leitura dos criadores com 20 mil, ao custo de duplicar quase toda a tabela na escrita, e ele ficou de fora.
-
-Não há cache: o teto de queries vale já na primeira chamada.
+Comparei a listagem com a implementação original em 480 combinações (até 3000 criadores, empates de métrica, offsets além do fim) e o JSON saiu idêntico em todas.
