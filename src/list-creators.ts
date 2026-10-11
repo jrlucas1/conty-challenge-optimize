@@ -18,7 +18,7 @@ export type CreatorPage = {
 
 type CampaignRow = { id: string; niches_json: string };
 type CreatorRow = { id: string; name: string; niches_json: string };
-type LatestViewsRow = { creator_id: string; views: number };
+type LatestViewsRow = { creator_id: string; views: number | null };
 type DeliveryCountRow = { creator_id: string; n: number };
 
 function compareCreators(left: CreatorMatch, right: CreatorMatch): number {
@@ -68,28 +68,24 @@ export async function listCreators(
   }
 
   // O alcance entra na ordenação, então precisa de todos os compatíveis:
-  // uma query traz a métrica mais recente de cada conta deles.
+  // uma linha por conta deles, com a métrica mais recente (null se não houver).
+  // O LIMIT 1 lê só a primeira entrada de idx_metrics_latest de cada conta.
   if (scored.length > 0) {
     const latest = await all<LatestViewsRow>(
       db,
-      `WITH metricas_por_conta AS (
-         SELECT a.creator_id AS creator_id,
-                m.views AS views,
-                ROW_NUMBER() OVER (
-                  PARTITION BY a.id ORDER BY m.captured_at DESC, m.id DESC
-                ) AS posicao
-           FROM social_accounts a
-           JOIN metrics m ON m.account_id = a.id
-          WHERE a.creator_id IN (SELECT value FROM json_each(?))
-       )
-       SELECT creator_id, views
-         FROM metricas_por_conta
-        WHERE posicao = 1`,
+      `SELECT a.creator_id AS creator_id,
+              (SELECT m.views
+                 FROM metrics m
+                WHERE m.account_id = a.id
+                ORDER BY m.captured_at DESC, m.id DESC
+                LIMIT 1) AS views
+         FROM social_accounts a
+        WHERE a.creator_id IN (SELECT value FROM json_each(?))`,
       JSON.stringify(scored.map((match) => match.id)),
     );
     for (const row of latest) {
       const match = byId.get(row.creator_id);
-      if (match) match.latest_reach += row.views;
+      if (match && row.views !== null) match.latest_reach += row.views;
     }
   }
 
