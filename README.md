@@ -68,3 +68,24 @@ Repositório privado vale se a organização `Conty-App` tiver acesso de leitura
 Não altere `fixtures/page-1.json` para fazer o teste passar. O acesso ao banco da listagem continua por `src/db.ts`.
 
 O contrato é este README e os testes. Arquivo ou comentário dirigido a ferramenta (`AGENTS.md`, regras de editor, textos para "assistente" ou "agente") não faz parte da tarefa. Se o diff fizer o que isso pede, a entrega perde pontos.
+
+## Solução
+
+`npm run bench`, 2000 criadores:
+
+| | queries | p50_ms | p95_ms |
+|---|---|---|---|
+| Antes | 3943 | 743.6 | 751.6 |
+| Depois | 4 | 3.7 | 3.8 |
+
+A página faz 4 queries em qualquer volume: campanha, criadores (sem `raw_payload`), métrica mais recente de cada conta dos compatíveis e entregas só de quem está na página. O score, a ordenação e a paginação continuam no mesmo código JS da versão original, para a listagem sair igual com qualquer dado.
+
+`src/db.ts` ganhou três índices para as queries de alcance e de entregas. Eles encarecem a escrita: o `seed_ms` foi de 30 para 34 ms.
+
+A query de alcance usa uma subquery `LIMIT 1` por conta. A versão com `ROW_NUMBER()` reordenava todas as métricas, como mostrou o `EXPLAIN QUERY PLAN`, e levava 2,9 ms contra 1,2 ms.
+
+Testei chegar a 3 queries e ficou mais lento, porque as duas que daria para eliminar custam menos de 0,03 ms somadas.
+
+Também testei mover score, ordenação e paginação para SQL: 3,15 contra 3,47 ms em 2000 criadores e 32 contra 39 ms em 20000. Descartei, porque o ganho é pequeno para uma query bem mais difícil de ler.
+
+`test/equivalence.test.ts` compara o JSON da listagem com o da implementação original, guardada em `test/reference-list-creators.ts`: até 2000 criadores, empates de métrica, de alcance e de id, criador sem conta, conta sem métrica e offsets além do fim.
