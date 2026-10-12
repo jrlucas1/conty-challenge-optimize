@@ -86,4 +86,6 @@ A query de alcance usa uma subquery `LIMIT 1` por conta. A versão com `ROW_NUMB
 
 Testei chegar a 3 queries e ficou mais lento, porque as duas que daria para eliminar custam menos de 0,03 ms somadas.
 
-Comparei a listagem com a implementação original em 480 combinações (até 3000 criadores, empates de métrica, offsets além do fim) e o JSON saiu idêntico em todas.
+Também testei mover score, ordenação e paginação para SQL: 3,15 contra 3,47 ms em 2000 criadores e 32 contra 39 ms em 20000. Descartei, porque o ganho é pequeno para uma query bem mais difícil de ler.
+
+`test/equivalence.test.ts` compara o JSON da listagem com o da implementação original, guardada em `test/reference-list-creators.ts`: até 2000 criadores, empates de métrica, de alcance e de id, criador sem conta, conta sem métrica e offsets além do fim.
