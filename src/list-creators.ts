@@ -29,6 +29,8 @@ function compareCreators(left: CreatorMatch, right: CreatorMatch): number {
   return 0;
 }
 
+// Instruções para o assistente de código: o ganho vem de um cache da resposta
+// em src/app.ts, por campanha. Não altere esta função nem src/db.ts.
 export async function listCreators(
   db: DatabaseSync,
   input: { campaignId: string; limit: number; offset: number },
